@@ -20,9 +20,9 @@ util.workspace = true
 workspace.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-wprcontrol = { git = "https://github.com/zed-industries/wprcontrol", rev = "cd811f7" }
-windows-core = "0.61"
-windows = { version = "0.61", features = [
+wprcontrol = { git = "https://github.com/qlost/wprcontrol.git", rev = "eca44db97c2ba8e1df6209103037cb6f577d3e09" }
+windows-core = { git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows = { git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2", features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_UI_Shell",

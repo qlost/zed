@@ -15,10 +15,22 @@ use windows::Win32::{
         },
         Dxgi::{
             CreateDXGIFactory2, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
-            IDXGIAdapter1, IDXGIFactory6,
+            IDXGIAdapter1,
         },
     },
 };
+#[cfg(target_vendor = "win7")]
+use windows::Win32::Graphics::Dxgi::CreateDXGIFactory1;
+#[cfg(target_vendor = "win7")]
+use windows::Win32::Graphics::Dxgi::IDXGIFactory2;
+#[cfg(target_vendor = "win7")]
+pub(crate) type DxgiFactory = IDXGIFactory2;
+
+#[cfg(not(target_vendor = "win7"))]
+use windows::Win32::Graphics::Dxgi::IDXGIFactory6;
+#[cfg(not(target_vendor = "win7"))]
+pub(crate) type DxgiFactory = IDXGIFactory6;
+
 use windows::core::Interface;
 
 pub(crate) fn try_to_recover_from_device_lost<T>(mut f: impl FnMut() -> Result<T>) -> Result<T> {
@@ -38,7 +50,7 @@ pub(crate) fn try_to_recover_from_device_lost<T>(mut f: impl FnMut() -> Result<T
 #[derive(Clone)]
 pub(crate) struct DirectXDevices {
     pub(crate) adapter: IDXGIAdapter1,
-    pub(crate) dxgi_factory: IDXGIFactory6,
+    pub(crate) dxgi_factory: DxgiFactory,
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
 }
@@ -88,8 +100,9 @@ fn check_debug_layer_available() -> bool {
     }
 }
 
+#[cfg(not(target_vendor = "win7"))]
 #[inline]
-fn get_dxgi_factory(debug_layer_available: bool) -> Result<IDXGIFactory6> {
+fn get_dxgi_factory(debug_layer_available: bool) -> Result<DxgiFactory> {
     let factory_flag = if debug_layer_available {
         DXGI_CREATE_FACTORY_DEBUG
     } else {
@@ -102,9 +115,18 @@ fn get_dxgi_factory(debug_layer_available: bool) -> Result<IDXGIFactory6> {
     unsafe { Ok(CreateDXGIFactory2(factory_flag)?) }
 }
 
+// On Windows 7, use `CreateDXGIFactory1` (DXGI 1.1) to create the factory, but
+// store it as `IDXGIFactory2` (DXGI 1.2) so that `CreateSwapChainForHwnd` and
+// `MakeWindowAssociation` are available to the renderer.
+#[cfg(target_vendor = "win7")]
+#[inline]
+fn get_dxgi_factory(_debug_layer_available: bool) -> Result<DxgiFactory> {
+    unsafe { Ok(CreateDXGIFactory1()?) }
+}
+
 #[inline]
 fn get_adapter(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &DxgiFactory,
     debug_layer_available: bool,
 ) -> Result<(
     IDXGIAdapter1,
@@ -115,9 +137,14 @@ fn get_adapter(
     for adapter_index in 0.. {
         let adapter: IDXGIAdapter1 = unsafe { dxgi_factory.EnumAdapters(adapter_index)?.cast()? };
         if let Ok(desc) = unsafe { adapter.GetDesc1() } {
-            let gpu_name = String::from_utf16_lossy(&desc.Description)
-                .trim_matches(char::from(0))
-                .to_string();
+            // `Description` is a fixed-width `[u16; 128]` buffer, so it may contain trailing nulls
+            // (and leftover data) after the name. Cut it at the first null terminator.
+            let description = &desc.Description;
+            let len = description
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(description.len());
+            let gpu_name = String::from_utf16_lossy(&description[..len]);
             log::info!("Using GPU: {}", gpu_name);
         }
         // Check to see whether the adapter supports Direct3D 11 and create

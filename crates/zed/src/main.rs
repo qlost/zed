@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod reliability;
+#[cfg(target_os = "windows")]
+mod crash_handler;
 mod watcher_debug;
 mod zed;
 
@@ -200,6 +202,9 @@ static STARTUP_TIME: OnceLock<Instant> = OnceLock::new();
 
 fn main() {
     STARTUP_TIME.get_or_init(|| Instant::now());
+
+    #[cfg(target_os = "windows")]
+    crash_handler::install();
 
     // If this process was re-executed as a Linux sandbox helper, run that mode
     // without returning. Must run before argument parsing: the wrapped command's

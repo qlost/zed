@@ -8,7 +8,7 @@ use windows::{
             CLASS_E_CLASSNOTAVAILABLE, E_FAIL, E_INVALIDARG, E_NOTIMPL, ERROR_INSUFFICIENT_BUFFER,
             GetLastError, HINSTANCE, MAX_PATH,
         },
-        Globalization::u_strlen,
+        Globalization::lstrlenW,
         System::{
             Com::{IBindCtx, IClassFactory, IClassFactory_Impl},
             LibraryLoader::GetModuleFileNameW,
@@ -19,7 +19,7 @@ use windows::{
             IExplorerCommand_Impl, IShellItemArray, SHStrDupW, SIGDN_FILESYSPATH,
         },
     },
-    core::{BOOL, GUID, HRESULT, HSTRING, Interface, Ref, Result, implement},
+    core::{BOOL, GUID, HRESULT, HSTRING, Interface, PCWSTR, Ref, Result, implement},
 };
 
 static mut DLL_INSTANCE: HINSTANCE = HINSTANCE(std::ptr::null_mut());
@@ -164,7 +164,7 @@ fn get_zed_install_folder() -> Option<PathBuf> {
         buf = vec![0u16; buf.len() * 2];
         unsafe { GetModuleFileNameW(Some(DLL_INSTANCE.into()), &mut buf) };
     }
-    let len = unsafe { u_strlen(buf.as_ptr()) };
+    let len = unsafe { lstrlenW(PCWSTR(buf.as_ptr())) };
     let path: PathBuf = std::ffi::OsString::from_wide(&buf[..len as usize])
         .into_string()
         .ok()?

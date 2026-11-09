@@ -15,6 +15,7 @@ use windows::{
             DirectWrite::*,
             Dxgi::{Common::*, *},
         },
+        System::LibraryLoader::{GetProcAddress, LoadLibraryW},
     },
     core::{HSTRING, Interface},
 };
@@ -60,7 +61,7 @@ pub(crate) struct DirectXRenderer {
 #[derive(Clone)]
 pub(crate) struct DirectXRendererDevices {
     pub(crate) adapter: IDXGIAdapter1,
-    pub(crate) dxgi_factory: IDXGIFactory6,
+    pub(crate) dxgi_factory: DxgiFactory,
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
     dxgi_device: Option<IDXGIDevice>,
@@ -824,9 +825,14 @@ impl DirectXRenderer {
         let devices = self.devices.as_ref().context("devices missing")?;
         let desc = unsafe { devices.adapter.GetDesc1() }?;
         let is_software_emulated = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0;
-        let device_name = String::from_utf16_lossy(&desc.Description)
-            .trim_matches(char::from(0))
-            .to_string();
+        // `Description` is a fixed-width `[u16; 128]` buffer, so it may contain trailing nulls
+        // (and leftover data) after the name. Cut it at the first null terminator.
+        let description = &desc.Description;
+        let len = description
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(description.len());
+        let device_name = String::from_utf16_lossy(&description[..len]);
         let driver_name = match desc.VendorId {
             0x10DE => "NVIDIA Corporation".to_string(),
             0x1002 => "AMD Corporation".to_string(),
@@ -853,7 +859,13 @@ impl DirectXRenderer {
     pub(crate) fn get_font_info() -> &'static FontInfo {
         static CACHED_FONT_INFO: OnceLock<FontInfo> = OnceLock::new();
         CACHED_FONT_INFO.get_or_init(|| unsafe {
+            // `IDWriteFactory5` is Win10-only; on Win7 requesting it fails with E_NOINTERFACE.
+            // Create the base factory instead — its rendering params still expose the 1.1
+            // `IDWriteRenderingParams1` interface (available with the Platform Update).
+            #[cfg(not(target_vendor = "win7"))]
             let factory: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
+            #[cfg(target_vendor = "win7")]
+            let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
             let render_params: IDWriteRenderingParams1 =
                 factory.CreateRenderingParams().unwrap().cast().unwrap();
             FontInfo {
@@ -1292,11 +1304,40 @@ impl Drop for DirectXRenderer {
 
 #[inline]
 fn get_comp_device(dxgi_device: &IDXGIDevice) -> Result<IDCompositionDevice> {
-    Ok(unsafe { DCompositionCreateDevice(dxgi_device)? })
+    let function = (*DCOMP_CREATE_DEVICE.get_or_init(load_dcomp_create_device))
+        .ok_or_else(|| {
+            // ERROR_PROC_NOT_FOUND
+            anyhow::anyhow!(windows::core::Error::from(windows::core::HRESULT::from_win32(127)))
+        })?;
+    let mut result: *mut core::ffi::c_void = core::ptr::null_mut();
+    unsafe {
+        function(dxgi_device.as_raw(), &IDCompositionDevice::IID, &mut result)
+            .ok()
+            .context("DCompositionCreateDevice failed")?;
+    }
+    unsafe { Ok(windows::core::Type::from_abi(result)?) }
+}
+
+type DCompositionCreateDeviceFn = unsafe extern "system" fn(
+    *mut core::ffi::c_void,
+    *const windows::core::GUID,
+    *mut *mut core::ffi::c_void,
+) -> windows::core::HRESULT;
+
+/// `DCompositionCreateDevice` is only available on Windows 8+ (dcomp.dll).
+/// Load it dynamically to avoid a static import, so the binary still loads on
+/// older systems (Windows 7). DirectComposition is never used on Windows 7
+/// (`disable_direct_composition`), so this is never invoked there.
+static DCOMP_CREATE_DEVICE: OnceLock<Option<DCompositionCreateDeviceFn>> = OnceLock::new();
+
+fn load_dcomp_create_device() -> Option<DCompositionCreateDeviceFn> {
+    let dcomp = unsafe { LoadLibraryW(windows::core::w!("dcomp.dll")) }.ok()?;
+    let proc = unsafe { GetProcAddress(dcomp, windows::core::s!("DCompositionCreateDevice")) }?;
+    Some(unsafe { std::mem::transmute(proc) })
 }
 
 fn create_swap_chain_for_composition(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &DxgiFactory,
     device: &ID3D11Device,
     width: u32,
     height: u32,
@@ -1322,7 +1363,7 @@ fn create_swap_chain_for_composition(
 }
 
 fn create_swap_chain(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &DxgiFactory,
     device: &ID3D11Device,
     hwnd: HWND,
     width: u32,
@@ -1341,13 +1382,25 @@ fn create_swap_chain(
         },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: BUFFER_COUNT as u32,
-        Scaling: DXGI_SCALING_NONE,
-        SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+        // `DXGI_SCALING_NONE` is only valid on flip-model swap chains; blt-model (`DISCARD`) needs
+        // `DXGI_SCALING_STRETCH` (otherwise `CreateSwapChainForHwnd` returns `E_INVALIDARG`).
+        Scaling: if cfg!(target_vendor = "win7") {
+            DXGI_SCALING_STRETCH
+        } else {
+            DXGI_SCALING_NONE
+        },
+        // Flip-model swap effects are only supported on Windows 8+ (and require the DWM). On Win7
+        // the swapchain must use a blt-model (`DISCARD`) effect.
+        SwapEffect: if cfg!(target_vendor = "win7") {
+            DXGI_SWAP_EFFECT_DISCARD
+        } else {
+            DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
+        },
         AlphaMode: DXGI_ALPHA_MODE_IGNORE,
         Flags: 0,
     };
-    let swap_chain =
-        unsafe { dxgi_factory.CreateSwapChainForHwnd(device, hwnd, &desc, None, None) }?;
+    let swap_chain = unsafe { dxgi_factory.CreateSwapChainForHwnd(device, hwnd, &desc, None, None) }
+        .context("CreateSwapChainForHwnd failed")?;
     unsafe { dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER) }?;
     Ok(swap_chain)
 }

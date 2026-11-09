@@ -8,7 +8,8 @@ use windows::{
         ViewManagement::{UIColorType, UISettings},
     },
     Win32::{
-        Foundation::*, Graphics::Dwm::*, System::LibraryLoader::LoadLibraryA,
+        Foundation::*, Graphics::Dwm::*, Graphics::Gdi::*,
+        System::LibraryLoader::{GetProcAddress, LoadLibraryA, LoadLibraryW},
         UI::WindowsAndMessaging::*,
     },
     core::{BOOL, PCSTR},
@@ -16,6 +17,37 @@ use windows::{
 
 use crate::*;
 use gpui::*;
+
+/// Returns the DPI of the given window.
+///
+/// `GetDpiForWindow` (per-monitor DPI) is only available on Windows 10 1607+.
+/// Load it dynamically to avoid a static import, and fall back to the GDI
+/// system-DPI query on older systems (Windows 7).
+pub(crate) fn get_dpi_for_window(hwnd: HWND) -> u32 {
+    if let Some(get_dpi_for_window) = load_get_dpi_for_window() {
+        return unsafe { get_dpi_for_window(hwnd) };
+    }
+
+    unsafe {
+        let hdc = GetDC(Some(hwnd));
+        if hdc.0.is_null() {
+            return USER_DEFAULT_SCREEN_DPI;
+        }
+        let dpi = GetDeviceCaps(Some(hdc), LOGPIXELSX) as u32;
+        ReleaseDC(Some(hwnd), hdc);
+        dpi
+    }
+}
+
+type GetDpiForWindowFn = unsafe extern "system" fn(HWND) -> u32;
+
+/// Dynamically resolve `GetDpiForWindow` from user32.dll, returning a typed
+/// function pointer if it is exported there.
+fn load_get_dpi_for_window() -> Option<GetDpiForWindowFn> {
+    let user32 = unsafe { LoadLibraryW(windows::core::w!("user32.dll")) }.ok()?;
+    let proc = unsafe { GetProcAddress(user32, windows::core::s!("GetDpiForWindow")) }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
 
 pub(crate) trait HiLoWord {
     fn hiword(&self) -> u16;

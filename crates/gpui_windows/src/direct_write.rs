@@ -60,7 +60,7 @@ impl Drop for DirectWriteComponents {
     }
 }
 
-struct GPUState {
+pub(crate) struct GPUState {
     device: ID3D11Device,
     device_context: ID3D11DeviceContext,
     sampler: Option<ID3D11SamplerState>,
@@ -80,7 +80,7 @@ struct DirectWriteState {
 }
 
 impl GPUState {
-    fn new(directx_devices: &DirectXDevices) -> Result<Self> {
+    pub(crate) fn new(directx_devices: &DirectXDevices) -> Result<Self> {
         let device = directx_devices.device.clone();
         let device_context = directx_devices.device_context.clone();
 
@@ -1369,10 +1369,10 @@ struct GlyphLayerTextureParams {
     _pad: [f32; 3],
 }
 
-struct TextRendererWrapper(IDWriteTextRenderer);
+pub(crate) struct TextRendererWrapper(IDWriteTextRenderer);
 
 impl TextRendererWrapper {
-    fn new(locale_str: HSTRING) -> Self {
+    pub(crate) fn new(locale_str: HSTRING) -> Self {
         let inner = TextRenderer::new(locale_str);
         TextRendererWrapper(inner.into())
     }
@@ -1718,7 +1718,7 @@ impl<'a> StringIndexConverter<'a> {
     }
 }
 
-fn font_style_to_dwrite(style: FontStyle) -> DWRITE_FONT_STYLE {
+pub(crate) fn font_style_to_dwrite(style: FontStyle) -> DWRITE_FONT_STYLE {
     match style {
         FontStyle::Normal => DWRITE_FONT_STYLE_NORMAL,
         FontStyle::Italic => DWRITE_FONT_STYLE_ITALIC,
@@ -1726,7 +1726,7 @@ fn font_style_to_dwrite(style: FontStyle) -> DWRITE_FONT_STYLE {
     }
 }
 
-fn font_style_from_dwrite(value: DWRITE_FONT_STYLE) -> FontStyle {
+pub(crate) fn font_style_from_dwrite(value: DWRITE_FONT_STYLE) -> FontStyle {
     match value.0 {
         0 => FontStyle::Normal,
         1 => FontStyle::Italic,
@@ -1735,15 +1735,15 @@ fn font_style_from_dwrite(value: DWRITE_FONT_STYLE) -> FontStyle {
     }
 }
 
-fn font_weight_to_dwrite(weight: FontWeight) -> DWRITE_FONT_WEIGHT {
+pub(crate) fn font_weight_to_dwrite(weight: FontWeight) -> DWRITE_FONT_WEIGHT {
     DWRITE_FONT_WEIGHT(weight.0 as i32)
 }
 
-fn font_weight_from_dwrite(value: DWRITE_FONT_WEIGHT) -> FontWeight {
+pub(crate) fn font_weight_from_dwrite(value: DWRITE_FONT_WEIGHT) -> FontWeight {
     FontWeight(value.0 as f32)
 }
 
-fn get_font_names_from_collection(
+pub(crate) fn get_font_names_from_collection(
     collection: &IDWriteFontCollection1,
     locale: &HSTRING,
 ) -> Vec<String> {
@@ -1767,7 +1767,7 @@ fn get_font_names_from_collection(
     }
 }
 
-fn font_face_to_font(font_face: &IDWriteFontFace3, locale: &HSTRING) -> Option<Font> {
+pub(crate) fn font_face_to_font(font_face: &IDWriteFontFace3, locale: &HSTRING) -> Option<Font> {
     let localized_family_name = unsafe { font_face.GetFamilyNames().log_err() }?;
     let family_name = get_name(localized_family_name, locale).log_err()?;
     let weight = unsafe { font_face.GetWeight() };
@@ -1782,7 +1782,7 @@ fn font_face_to_font(font_face: &IDWriteFontFace3, locale: &HSTRING) -> Option<F
 }
 
 // https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-dwrite_font_feature_tag
-fn apply_font_features(
+pub(crate) fn apply_font_features(
     direct_write_features: &IDWriteTypography,
     features: &FontFeatures,
 ) -> Result<()> {
@@ -1843,7 +1843,7 @@ const fn make_direct_write_tag(tag_name: &str) -> DWRITE_FONT_FEATURE_TAG {
 }
 
 #[inline]
-fn get_name(string: IDWriteLocalizedStrings, locale: &HSTRING) -> Result<String> {
+pub(crate) fn get_name(string: IDWriteLocalizedStrings, locale: &HSTRING) -> Result<String> {
     let mut locale_name_index = 0u32;
     let mut exists = BOOL(0);
     unsafe { string.FindLocaleName(locale, &mut locale_name_index, &mut exists as _)? };
@@ -1867,7 +1867,7 @@ fn get_name(string: IDWriteLocalizedStrings, locale: &HSTRING) -> Result<String>
     Ok(String::from_utf16_lossy(&name_vec[..name_length]))
 }
 
-fn get_system_subpixel_rendering() -> bool {
+pub(crate) fn get_system_subpixel_rendering() -> bool {
     let mut value = c_uint::default();
     let result = unsafe {
         SystemParametersInfoW(
@@ -1884,7 +1884,7 @@ fn get_system_subpixel_rendering() -> bool {
     }
 }
 
-fn get_system_ui_font_name() -> SharedString {
+pub(crate) fn get_system_ui_font_name() -> SharedString {
     unsafe {
         let mut info: LOGFONTW = std::mem::zeroed();
         let font_family = if SystemParametersInfoW(

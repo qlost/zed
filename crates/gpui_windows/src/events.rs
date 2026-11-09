@@ -793,7 +793,7 @@ impl WindowsWindowInner {
             let result = DefWindowProcW(handle, WM_NCCALCSIZE, wparam, lparam);
             (*params).rgrc[0].top = saved_top;
             if self.state.is_maximized() {
-                let dpi = GetDpiForWindow(handle);
+                let dpi = get_dpi_for_window(handle);
                 (*params).rgrc[0].top += get_frame_thicknessx(dpi);
             }
             Some(result.0 as isize)
@@ -888,9 +888,9 @@ impl WindowsWindowInner {
         self.state.scale_factor.set(new_scale_factor);
         self.state.border_offset.update(handle).log_err();
 
-        self.state
-            .direct_manipulation
-            .set_scale_factor(new_scale_factor);
+        if let Some(direct_manipulation) = &self.state.direct_manipulation {
+            direct_manipulation.set_scale_factor(new_scale_factor);
+        }
 
         if is_maximized {
             // Get the monitor and its work area at the new DPI
@@ -992,7 +992,7 @@ impl WindowsWindowInner {
             return drag_area;
         }
 
-        let dpi = unsafe { GetDpiForWindow(handle) };
+        let dpi = get_dpi_for_window(handle);
         // We do not use the OS title bar, so the default `DefWindowProcW` will only register a 1px edge for resizes
         // We need to calculate the frame thickness ourselves and do the hit test manually.
         let frame_y = get_frame_thicknessx(dpi);
@@ -1321,7 +1321,9 @@ impl WindowsWindowInner {
     }
 
     fn handle_dm_pointer_hit_test(&self, wparam: WPARAM) -> Option<isize> {
-        self.state.direct_manipulation.on_pointer_hit_test(wparam);
+        if let Some(direct_manipulation) = &self.state.direct_manipulation {
+            direct_manipulation.on_pointer_hit_test(wparam);
+        }
         None
     }
 
@@ -1343,9 +1345,13 @@ impl WindowsWindowInner {
         };
         let mut request_frame = self.state.callbacks.request_frame.take()?;
 
-        self.state.direct_manipulation.update();
-
-        let events = self.state.direct_manipulation.drain_events();
+        let events = match &self.state.direct_manipulation {
+            Some(direct_manipulation) => {
+                direct_manipulation.update();
+                direct_manipulation.drain_events()
+            }
+            None => Vec::new(),
+        };
         if !events.is_empty() {
             if let Some(mut func) = self.state.callbacks.input.take() {
                 for event in events {
@@ -1766,19 +1772,51 @@ pub(crate) fn current_capslock() -> Capslock {
     Capslock { on }
 }
 
+type GetSystemMetricsForDpiFn = unsafe extern "system" fn(SYSTEM_METRICS_INDEX, u32) -> i32;
+
+/// `GetSystemMetricsForDpi` is only available on Windows 10 1607+. Load it
+/// dynamically to avoid a static import, and fall back to `GetSystemMetrics`
+/// (available on all Windows) when it is unavailable.
+fn get_system_metrics_for_dpi(index: SYSTEM_METRICS_INDEX, dpi: u32) -> i32 {
+    static GET_SYSTEM_METRICS_FOR_DPI: std::sync::OnceLock<Option<GetSystemMetricsForDpiFn>> =
+        std::sync::OnceLock::new();
+
+    let get_system_metrics_for_dpi =
+        *GET_SYSTEM_METRICS_FOR_DPI.get_or_init(load_get_system_metrics_for_dpi);
+    match get_system_metrics_for_dpi {
+        Some(func) => unsafe { func(index, dpi) },
+        None => unsafe { GetSystemMetrics(index) },
+    }
+}
+
+/// Dynamically resolve `GetSystemMetricsForDpi` from user32.dll.
+fn load_get_system_metrics_for_dpi() -> Option<GetSystemMetricsForDpiFn> {
+    let user32 = unsafe {
+        windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll"))
+    }
+    .ok()?;
+    let proc = unsafe {
+        windows::Win32::System::LibraryLoader::GetProcAddress(
+            user32,
+            windows::core::s!("GetSystemMetricsForDpi"),
+        )
+    }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
+
 // there is some additional non-visible space when talking about window
 // borders on Windows:
 // - SM_CXSIZEFRAME: The resize handle.
 // - SM_CXPADDEDBORDER: Additional border space that isn't part of the resize handle.
 fn get_frame_thicknessx(dpi: u32) -> i32 {
-    let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) };
-    let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
+    let resize_frame_thickness = get_system_metrics_for_dpi(SM_CXSIZEFRAME, dpi);
+    let padding_thickness = get_system_metrics_for_dpi(SM_CXPADDEDBORDER, dpi);
     resize_frame_thickness + padding_thickness
 }
 
 fn get_frame_thicknessy(dpi: u32) -> i32 {
-    let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) };
-    let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
+    let resize_frame_thickness = get_system_metrics_for_dpi(SM_CYSIZEFRAME, dpi);
+    let padding_thickness = get_system_metrics_for_dpi(SM_CXPADDEDBORDER, dpi);
     resize_frame_thickness + padding_thickness
 }
 

@@ -748,14 +748,10 @@ impl Platform for WindowsPlatform {
         self.inner.state.callbacks.system_wake.set(Some(callback));
         let mut notification = self.suspend_resume_notification.borrow_mut();
         if notification.is_none() {
-            *notification = unsafe {
-                // SAFETY: self.handle is the platform window receiving WM_POWERBROADCAST.
-                RegisterSuspendResumeNotification(
-                    HANDLE(self.handle.0),
-                    DEVICE_NOTIFY_WINDOW_HANDLE,
-                )
-                .log_err()
-            };
+            *notification = register_suspend_resume_notification(
+                HANDLE(self.handle.0),
+                DEVICE_NOTIFY_WINDOW_HANDLE,
+            );
         }
     }
 
@@ -1251,8 +1247,7 @@ impl Drop for WindowsPlatform {
     fn drop(&mut self) {
         unsafe {
             if let Some(notification) = self.suspend_resume_notification.borrow_mut().take() {
-                // SAFETY: notification was returned by RegisterSuspendResumeNotification.
-                UnregisterSuspendResumeNotification(notification).log_err();
+                unregister_suspend_resume_notification(notification);
             }
             DestroyWindow(self.handle)
                 .context("Destroying platform window")
@@ -1290,12 +1285,42 @@ struct PlatformWindowCreateContext {
     dispatcher: Option<Arc<WindowsDispatcher>>,
 }
 
+type GetCurrentPackageFullNameFn = unsafe extern "system" fn(*mut u32, *mut u16) -> WIN32_ERROR;
+type RegisterSuspendResumeNotificationFn = unsafe extern "system" fn(HANDLE, REGISTER_NOTIFICATION_FLAGS) -> HPOWERNOTIFY;
+type UnregisterSuspendResumeNotificationFn = unsafe extern "system" fn(HPOWERNOTIFY) -> BOOL;
+
+/// Dynamically resolve `GetCurrentPackageFullName` from kernel32.dll.
+fn load_get_current_package_full_name() -> Option<GetCurrentPackageFullNameFn> {
+    let module = unsafe { LoadLibraryW(windows::core::w!("kernel32.dll")) }.ok()?;
+    let proc = unsafe { GetProcAddress(module, windows::core::s!("GetCurrentPackageFullName")) }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
+
+/// Dynamically resolve `RegisterSuspendResumeNotification` from user32.dll.
+fn load_register_suspend_resume_notification() -> Option<RegisterSuspendResumeNotificationFn> {
+    let module = unsafe { LoadLibraryW(windows::core::w!("user32.dll")) }.ok()?;
+    let proc = unsafe { GetProcAddress(module, windows::core::s!("RegisterSuspendResumeNotification")) }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
+
+/// Dynamically resolve `UnregisterSuspendResumeNotification` from user32.dll.
+fn load_unregister_suspend_resume_notification() -> Option<UnregisterSuspendResumeNotificationFn> {
+    let module = unsafe { LoadLibraryW(windows::core::w!("user32.dll")) }.ok()?;
+    let proc = unsafe { GetProcAddress(module, windows::core::s!("UnregisterSuspendResumeNotification")) }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
+
 fn has_package_identity() -> bool {
-    let mut package_full_name_length = 0;
+    let get_package_full_name = load_get_current_package_full_name();
+    let Some(get_package_full_name) = get_package_full_name else {
+        return false;
+    };
+
+    let mut package_full_name_length = 0u32;
     let result = unsafe {
-        windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName(
+        get_package_full_name(
             &mut package_full_name_length,
-            None,
+            std::ptr::null_mut(),
         )
     };
     if result == ERROR_INSUFFICIENT_BUFFER {
@@ -1305,6 +1330,47 @@ fn has_package_identity() -> bool {
     } else {
         log::warn!("failed to determine whether the process has package identity: {result:?}");
         false
+    }
+}
+
+/// `RegisterSuspendResumeNotification` is only available on Windows 8+. Load it
+/// dynamically to avoid a static import. Returns `None` when it is unavailable
+/// or fails.
+fn register_suspend_resume_notification(handle: HANDLE, flags: REGISTER_NOTIFICATION_FLAGS) -> Option<HPOWERNOTIFY> {
+    static REGISTER_SUSPEND_RESUME_NOTIFICATION: std::sync::OnceLock<
+        Option<RegisterSuspendResumeNotificationFn>,
+    > = std::sync::OnceLock::new();
+
+    let register = *REGISTER_SUSPEND_RESUME_NOTIFICATION.get_or_init(load_register_suspend_resume_notification);
+    let register = register?;
+    let notification = unsafe { register(handle, flags) };
+    if notification.is_invalid() {
+        log::error!(
+            "RegisterSuspendResumeNotification failed: {}",
+            std::io::Error::last_os_error()
+        );
+        None
+    } else {
+        Some(notification)
+    }
+}
+
+/// `UnregisterSuspendResumeNotification` is only available on Windows 8+. Load
+/// it dynamically to avoid a static import.
+fn unregister_suspend_resume_notification(notification: HPOWERNOTIFY) {
+    static UNREGISTER_SUSPEND_RESUME_NOTIFICATION: std::sync::OnceLock<
+        Option<UnregisterSuspendResumeNotificationFn>,
+    > = std::sync::OnceLock::new();
+
+    let unregister = *UNREGISTER_SUSPEND_RESUME_NOTIFICATION.get_or_init(load_unregister_suspend_resume_notification);
+    if let Some(unregister) = unregister {
+        let result = unsafe { unregister(notification) };
+        if result.0 == 0 {
+            log::warn!(
+                "UnregisterSuspendResumeNotification failed: {}",
+                std::io::Error::last_os_error()
+            );
+        }
     }
 }
 

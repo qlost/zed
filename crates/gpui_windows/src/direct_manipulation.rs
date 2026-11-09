@@ -10,6 +10,7 @@ use windows::Win32::{
     System::Com::*,
     UI::{Input::Pointer::*, WindowsAndMessaging::*},
 };
+use windows_core::BOOL;
 
 use crate::*;
 
@@ -17,6 +18,37 @@ use crate::*;
 /// because we're using the viewport only for gesture recognition, not for
 /// visual output.
 const DEFAULT_VIEWPORT_SIZE: i32 = 1000;
+
+type GetPointerTypeFn = unsafe extern "system" fn(u32, *mut POINTER_INPUT_TYPE) -> BOOL;
+
+/// `GetPointerType` is only available on Windows 8+. Load it dynamically to
+/// avoid a static import, and return `None` when it is unavailable or the
+/// pointer id is invalid.
+fn get_pointer_type(pointer_id: u32) -> Option<POINTER_INPUT_TYPE> {
+    static GET_POINTER_TYPE: std::sync::OnceLock<Option<GetPointerTypeFn>> =
+        std::sync::OnceLock::new();
+
+    let get_pointer_type = *GET_POINTER_TYPE.get_or_init(load_get_pointer_type);
+    let get_pointer_type = get_pointer_type?;
+    let mut pointer_type = POINTER_INPUT_TYPE::default();
+    let result = unsafe { get_pointer_type(pointer_id, &mut pointer_type) };
+    (result.0 != 0).then_some(pointer_type)
+}
+
+/// Dynamically resolve `GetPointerType` from user32.dll.
+fn load_get_pointer_type() -> Option<GetPointerTypeFn> {
+    let user32 = unsafe {
+        windows::Win32::System::LibraryLoader::LoadLibraryW(windows::core::w!("user32.dll"))
+    }
+    .ok()?;
+    let proc = unsafe {
+        windows::Win32::System::LibraryLoader::GetProcAddress(
+            user32,
+            windows::core::s!("GetPointerType"),
+        )
+    }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
 
 pub(crate) struct DirectManipulationHandler {
     manager: IDirectManipulationManager,
@@ -95,11 +127,9 @@ impl DirectManipulationHandler {
     }
 
     pub fn on_pointer_hit_test(&self, wparam: WPARAM) {
-        unsafe {
-            let pointer_id = wparam.loword() as u32;
-            let mut pointer_type = POINTER_INPUT_TYPE::default();
-            if GetPointerType(pointer_id, &mut pointer_type).is_ok() && pointer_type == PT_TOUCHPAD
-            {
+        let pointer_id = wparam.loword() as u32;
+        if get_pointer_type(pointer_id) == Some(PT_TOUCHPAD) {
+            unsafe {
                 self.viewport.SetContact(pointer_id).log_err();
             }
         }

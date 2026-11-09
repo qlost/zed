@@ -7,8 +7,9 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
+        System::LibraryLoader::{GetProcAddress, LoadLibraryW},
         UI::{
-            HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+            HiDpi::{MONITOR_DPI_TYPE, MDT_EFFECTIVE_DPI},
             WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
         },
     },
@@ -201,10 +202,41 @@ fn generate_uuid(device_name: &[u16]) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_DNS, &name)
 }
 
+type GetDpiForMonitorFn =
+    unsafe extern "system" fn(HMONITOR, MONITOR_DPI_TYPE, *mut u32, *mut u32) -> HRESULT;
+
+/// `GetDpiForMonitor` is only available on Windows 8.1+. Load it dynamically
+/// from shcore.dll to avoid a static import.
+fn get_dpi_for_monitor(monitor: HMONITOR) -> Result<(u32, u32)> {
+    static GET_DPI_FOR_MONITOR: std::sync::OnceLock<Option<GetDpiForMonitorFn>> =
+        std::sync::OnceLock::new();
+
+    let get_dpi_for_monitor = GET_DPI_FOR_MONITOR
+        .get_or_init(load_get_dpi_for_monitor)
+        .ok_or_else(windows::core::Error::from_thread)?;
+    let mut dpi_x = 0u32;
+    let mut dpi_y = 0u32;
+    let result = unsafe { get_dpi_for_monitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
+    if result == S_OK {
+        Ok((dpi_x, dpi_y))
+    } else {
+        Err(windows::core::Error::from_thread())
+    }
+}
+
+/// Dynamically resolve `GetDpiForMonitor` from shcore.dll.
+fn load_get_dpi_for_monitor() -> Option<GetDpiForMonitorFn> {
+    let shcore = unsafe { LoadLibraryW(windows::core::w!("shcore.dll")) }.ok()?;
+    let proc = unsafe { GetProcAddress(shcore, windows::core::s!("GetDpiForMonitor")) }?;
+    Some(unsafe { std::mem::transmute(proc) })
+}
+
 fn get_scale_factor_for_monitor(monitor: HMONITOR) -> Result<f32> {
-    let mut dpi_x = 0;
-    let mut dpi_y = 0;
-    unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) }?;
+    let Ok((dpi_x, dpi_y)) = get_dpi_for_monitor(monitor) else {
+        // `GetDpiForMonitor` (shcore.dll) only exists on Win8.1+. On Win7 there is no per-monitor
+        // DPI, so fall back to the classic 96 DPI scale factor of 1.0.
+        return Ok(1.0);
+    };
     assert_eq!(dpi_x, dpi_y);
     Ok(dpi_x as f32 / USER_DEFAULT_SCREEN_DPI as f32)
 }

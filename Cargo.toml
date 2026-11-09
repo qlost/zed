@@ -520,7 +520,7 @@ accesskit_unix = "0.22"
 accesskit_windows = "0.34"
 agent-client-protocol = { version = "=2.2.0", features = ["unstable"] }
 aho-corasick = "1.1"
-alacritty_terminal = { git = "https://github.com/zed-industries/alacritty", rev = "4c129667ce56611becdc82de6e28218c80e2e88f" }
+alacritty_terminal = { git = "https://github.com/qlost/alacritty.git", rev = "fe857f0f2c84d4ff658521d2409085c65949c808" }
 any_vec = "0.14"
 anyhow = "1.0.86"
 arc-swap = "1.9.0"
@@ -819,7 +819,7 @@ rustix = { version = "1.1", features = ["fs"] }
 rustls = { version = "0.23.26" }
 rustls-platform-verifier = "0.7"
 # WARNING: If you change this, you must also publish a new version of zed-scap to crates.io
-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
+scap = { git = "https://github.com/qlost/scap.git", rev = "33ac67223e8172d5040255c7ddc1df0543df77a4", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
 schemars = { version = "1.0", features = ["indexmap2"] }
 seccompiler = "0.5"
 semver = { version = "1.0", features = ["serde"] }
@@ -1005,7 +1005,7 @@ features = [
 tree-sitter-language = { git = "https://github.com/tree-sitter/tree-sitter", rev = "43623ec9bf0eaaf7113285c46e8a09018f181b18" }
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
-windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+windows-capture = { git = "https://github.com/qlost/windows-capture.git", rev = "0cd29edd75edae022f1cbefdf1e421f5f76eb9cf" }
 calloop = { git = "https://github.com/zed-industries/calloop" }
 livekit = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "0a1c519cfce9b365229026b55de9b9dbdb6fed3c" }
 libwebrtc = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "0a1c519cfce9b365229026b55de9b9dbdb6fed3c" }
@@ -1024,6 +1024,21 @@ webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev 
 # per-crate scratch dirs are sufficient. Upstream issue:
 # https://github.com/dtolnay/cxx/issues/1752
 scratch = { path = "tooling/corgi/patches/scratch" }
+
+ipc-channel = { git = "https://github.com/qlost/ipc-channel.git", rev = "ff3ccaa8a3f089e67ea980a79a95dd4331f6ae6b" }
+
+windows = { package = 'windows', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-collections = { package = 'windows-collections', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-core = { package = 'windows-core', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-future = { package = 'windows-future', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-implement = { package = 'windows-implement', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-interface = { package = 'windows-interface', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-link = { package = 'windows-link', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-numerics = { package = 'windows-numerics', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-registry = { package = 'windows-registry', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-result = { package = 'windows-result', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-strings = { package = 'windows-strings', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
+windows-sys = { package = 'windows-sys', git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
 
 [profile.dev]
 split-debuginfo = "unpacked"

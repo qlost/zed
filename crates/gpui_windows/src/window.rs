@@ -61,7 +61,8 @@ pub struct WindowsWindowState {
     pub last_reported_capslock: Cell<Option<Capslock>>,
     pub hovered: Cell<bool>,
     pub last_visibility: Cell<Option<WindowVisibility>>,
-    pub direct_manipulation: DirectManipulationHandler,
+    // Direct Manipulation (touch/scroll gestures) is Windows 8.1+; absent on Win7.
+    pub direct_manipulation: Option<DirectManipulationHandler>,
 
     pub renderer: RefCell<DirectXRenderer>,
     /// Set when the next `draw_window` call must be treated as a forced
@@ -124,7 +125,7 @@ impl WindowsWindowState {
         draw_coordinator: Rc<DrawCoordinator>,
     ) -> Result<Self> {
         let scale_factor = {
-            let monitor_dpi = unsafe { GetDpiForWindow(hwnd) } as f32;
+            let monitor_dpi = get_dpi_for_window(hwnd) as f32;
             monitor_dpi / USER_DEFAULT_SCREEN_DPI as f32
         };
         let origin = logical_point(window_params.x as f32, window_params.y as f32, scale_factor);
@@ -154,8 +155,15 @@ impl WindowsWindowState {
         let fullscreen = None;
         let initial_placement = None;
 
-        let direct_manipulation = DirectManipulationHandler::new(hwnd, scale_factor)
-            .context("initializing Direct Manipulation")?;
+        // Direct Manipulation is Windows 8.1+; on Win7 the COM class is not registered, so the
+        // window is created without touch/scroll gesture support.
+        #[cfg(not(target_vendor = "win7"))]
+        let direct_manipulation = Some(
+            DirectManipulationHandler::new(hwnd, scale_factor)
+                .context("initializing Direct Manipulation")?,
+        );
+        #[cfg(target_vendor = "win7")]
+        let direct_manipulation = None;
 
         Ok(Self {
             origin: Cell::new(origin),
