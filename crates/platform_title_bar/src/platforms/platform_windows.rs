@@ -128,6 +128,20 @@ impl RenderOnce for WindowsCaptionButton {
             ),
         };
 
+        // Win7: `ghost_element_hover`/`ghost_element_active` (alpha step 3/4) are too subtle for a
+        // hover on the window-control buttons, so use the more visible `element_hover`/`element_active`
+        // for Minimize/Maximize (the Close button keeps its red hover).
+        #[cfg(target_vendor = "win7")]
+        let (hover_bg, hover_fg, active_bg, active_fg) = match &self {
+            Self::Close => (hover_bg, hover_fg, active_bg, active_fg),
+            _ => (
+                cx.theme().colors().element_hover,
+                hover_fg,
+                cx.theme().colors().element_active,
+                active_fg,
+            ),
+        };
+
         // On Win7 neither `Segoe MDL2 Assets` (Win10+) nor `Segoe Fluent Icons` (Win11+) is
         // installed, so the PUA window-control glyphs would render as missing-glyph boxes (the Win7
         // text backend has no font fallback). Draw the buttons as SVG icons instead, like the Linux
