@@ -1,3 +1,8 @@
+Windows 7 compatible Zed editor.
+Made with help of [Fenex](https://github.com/Fenex) and Deepseek.
+
+---
+
 # Zed
 
 [![Zed](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zed-industries/zed/main/assets/badge/v0.json)](https://zed.dev)
