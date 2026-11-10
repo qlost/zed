@@ -200,11 +200,12 @@ impl DirectManipulationEventHandler {
             GestureKind::Scroll => {
                 self.pending_events
                     .borrow_mut()
-                    .push(PlatformInput::ScrollWheel(ScrollWheelEvent {
+                    .push(PlatformInput::Scroll(ScrollEvent {
                         position,
                         delta: ScrollDelta::Pixels(point(px(0.0), px(0.0))),
                         modifiers,
                         touch_phase: TouchPhase::Ended,
+                        source: ScrollSource::Pointer,
                     }));
             }
             GestureKind::Pinch => {
@@ -354,11 +355,12 @@ impl IDirectManipulationViewportEventHandler_Impl for DirectManipulationEventHan
                 self.scroll_phase.set(TouchPhase::Moved);
                 self.pending_events
                     .borrow_mut()
-                    .push(PlatformInput::ScrollWheel(ScrollWheelEvent {
+                    .push(PlatformInput::Scroll(ScrollEvent {
                         position,
                         delta: ScrollDelta::Pixels(point(px(dx), px(dy))),
                         modifiers,
                         touch_phase,
+                        source: ScrollSource::Pointer,
                     }));
             }
             GestureKind::Pinch => {

@@ -10,7 +10,7 @@ path = "etw_tracing.rs"
 test = false
 doctest = false
 
-[dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 anyhow.workspace = true
 gpui.workspace = true
 net.workspace = true
@@ -19,7 +19,6 @@ serde_json.workspace = true
 util.workspace = true
 workspace.workspace = true
 
-[target.'cfg(target_os = "windows")'.dependencies]
 wprcontrol = { git = "https://github.com/qlost/wprcontrol.git", rev = "eca44db97c2ba8e1df6209103037cb6f577d3e09" }
 windows-core = { git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2" }
 windows = { git = "https://github.com/JustRustThings/windows-rs", branch = "stuff-0.62.2", features = [
