@@ -860,7 +860,7 @@ impl DirectXRenderer {
         static CACHED_FONT_INFO: OnceLock<FontInfo> = OnceLock::new();
         CACHED_FONT_INFO.get_or_init(|| unsafe {
             // `IDWriteFactory5` is Win10-only; on Win7 requesting it fails with E_NOINTERFACE.
-            // Create the base factory instead — its rendering params still expose the 1.1
+            // Create the base factory instead - its rendering params still expose the 1.1
             // `IDWriteRenderingParams1` interface (available with the Platform Update).
             #[cfg(not(target_vendor = "win7"))]
             let factory: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();

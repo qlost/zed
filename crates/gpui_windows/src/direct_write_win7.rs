@@ -27,6 +27,7 @@ use anyhow::{Context, Result};
 use collections::HashMap;
 use gpui_util::ResultExt;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use smallvec::SmallVec;
 use windows::{
     Win32::{
         Foundation::*,
@@ -76,7 +77,7 @@ struct DirectWriteState {
 }
 
 impl DirectWriteTextSystem {
-    pub(crate) fn new(_directx_devices: &DirectXDevices) -> Result<Self> {
+    pub(crate) fn new(_directx_devices: Option<&DirectXDevices>) -> Result<Self> {
         let factory: IDWriteFactory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
         let mut locale = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
         unsafe { GetUserDefaultLocaleName(&mut locale) };
@@ -116,6 +117,10 @@ impl DirectWriteTextSystem {
     pub(crate) fn handle_gpu_lost(&self, directx_devices: &DirectXDevices) -> Result<()> {
         self.state.write().handle_gpu_lost(directx_devices)
     }
+
+    /// Win7 text rasterization is CPU-only (no GPU state), so there is nothing to release when the
+    /// platform switches to headless mode.
+    pub(crate) fn release_gpu(&self) {}
 }
 
 impl PlatformTextSystem for DirectWriteTextSystem {
@@ -343,6 +348,73 @@ impl DirectWriteState {
     }
 
     fn layout_line(
+        &mut self,
+        components: &DirectWriteComponents,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> Result<LineLayout> {
+        if !text.contains(is_line_separator) {
+            return self.layout_line_without_separators(components, text, font_size, font_runs);
+        }
+
+        // DirectWrite honors mandatory breaks even without wrapping. Keep each
+        // separator at a segment's end so no subsequent text moves to a new baseline.
+        let mut layout = LineLayout {
+            font_size,
+            len: text.len(),
+            ..Default::default()
+        };
+        let mut remaining_runs = font_runs;
+        let mut run_offset = 0;
+        let mut text_offset = 0;
+        let mut segment_runs = SmallVec::<[FontRun; 4]>::new();
+        for segment in text.split_inclusive(is_line_separator) {
+            segment_runs.clear();
+            let mut remaining_bytes = segment.len();
+            while remaining_bytes > 0 {
+                let Some(run) = remaining_runs.first() else {
+                    break;
+                };
+                let len = remaining_bytes.min(run.len - run_offset);
+                if len > 0 {
+                    segment_runs.push(FontRun {
+                        len,
+                        font_id: run.font_id,
+                    });
+                }
+                remaining_bytes -= len;
+                run_offset += len;
+                if run_offset == run.len {
+                    remaining_runs = &remaining_runs[1..];
+                    run_offset = 0;
+                }
+            }
+
+            let segment_layout =
+                self.layout_line_without_separators(components, segment, font_size, &segment_runs)?;
+            for mut run in segment_layout.runs {
+                for glyph in &mut run.glyphs {
+                    glyph.index += text_offset;
+                    glyph.position.x += layout.width;
+                }
+                if let Some(last) = layout.runs.last_mut()
+                    && last.font_id == run.font_id
+                {
+                    last.glyphs.append(&mut run.glyphs);
+                } else {
+                    layout.runs.push(run);
+                }
+            }
+            layout.width += segment_layout.width;
+            layout.ascent = layout.ascent.max(segment_layout.ascent);
+            layout.descent = layout.descent.max(segment_layout.descent);
+            text_offset += segment.len();
+        }
+        Ok(layout)
+    }
+
+    fn layout_line_without_separators(
         &mut self,
         components: &DirectWriteComponents,
         text: &str,
@@ -736,6 +808,12 @@ impl DirectWriteState {
         // Win7: text rasterization is CPU-only (monochrome), so no GPU state to rebuild.
         Ok(())
     }
+}
+
+/// Unicode line separator (U+2028) and paragraph separator (U+2029) are treated as mandatory
+/// line breaks; `layout_line` splits on them so the shaped-line cursor stays correct.
+fn is_line_separator(character: char) -> bool {
+    matches!(character, '\u{2028}' | '\u{2029}')
 }
 
 /// Enumerates family names of a base (DWrite 1.0) font collection. Mirrors the Win10 helper of the

@@ -163,6 +163,7 @@ libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = [
+    "Win32_System_LibraryLoader",
     "Win32_System_Power",
     "Win32_System_RemoteDesktop",
     "Win32_System_WindowsProgramming",

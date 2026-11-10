@@ -924,16 +924,30 @@ fn read_clock(clock: libc::clockid_t) -> Option<Duration> {
 
 #[cfg(target_os = "windows")]
 fn system_suspended_time() -> Option<Duration> {
-    use windows::Win32::System::WindowsProgramming::{
-        QueryInterruptTime, QueryUnbiasedInterruptTime,
-    };
+    use std::sync::OnceLock;
+    use windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTime;
+
+    // `QueryInterruptTime` is exported by `KernelBase.dll` only since Windows 10; on Windows 7 it
+    // is absent. Load it dynamically (`GetProcAddress`) so the binary carries no static import of
+    // that symbol and stays loadable on Windows 7. `QueryUnbiasedInterruptTime` (below) is
+    // available since Windows 7, so it stays a direct import.
+    type QueryInterruptTimeFn = unsafe extern "system" fn(*mut u64);
+    static QUERY_INTERRUPT_TIME: OnceLock<Option<QueryInterruptTimeFn>> = OnceLock::new();
+    let query_interrupt_time = (*QUERY_INTERRUPT_TIME.get_or_init(|| {
+        use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+        let kernelbase = unsafe { LoadLibraryW(windows::core::w!("KernelBase.dll")) }.ok()?;
+        let proc = unsafe { GetProcAddress(kernelbase, windows::core::s!("QueryInterruptTime")) }?;
+        Some(unsafe { std::mem::transmute::<_, QueryInterruptTimeFn>(proc) })
+    }))?;
+
     let mut awake = 0;
     // SAFETY: `awake` is a valid, writable u64.
     if !unsafe { QueryUnbiasedInterruptTime(&mut awake) }.as_bool() {
         return None;
     }
-    // SAFETY: no preconditions.
-    let total = unsafe { QueryInterruptTime() };
+    let mut total = 0;
+    // SAFETY: `total` is a valid, writable u64.
+    unsafe { query_interrupt_time(&mut total) };
     // Both count 100 ns units; unbiased interrupt time excludes sleep and
     // hibernation:
     // https://learn.microsoft.com/en-us/windows/win32/sysinfo/interrupt-time
