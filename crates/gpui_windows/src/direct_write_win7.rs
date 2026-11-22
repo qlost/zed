@@ -42,7 +42,6 @@ use crate::direct_write::{
     apply_font_features, font_style_to_dwrite, font_weight_to_dwrite, get_name,
     get_system_subpixel_rendering, get_system_ui_font_name,
 };
-use crate::directx_devices::DirectXDevices;
 use gpui::*;
 
 #[derive(Debug)]
@@ -77,7 +76,7 @@ struct DirectWriteState {
 }
 
 impl DirectWriteTextSystem {
-    pub(crate) fn new(_directx_devices: Option<&DirectXDevices>) -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let factory: IDWriteFactory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
         let mut locale = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
         unsafe { GetUserDefaultLocaleName(&mut locale) };
@@ -113,14 +112,6 @@ impl DirectWriteTextSystem {
             }),
         })
     }
-
-    pub(crate) fn handle_gpu_lost(&self, directx_devices: &DirectXDevices) -> Result<()> {
-        self.state.write().handle_gpu_lost(directx_devices)
-    }
-
-    /// Win7 text rasterization is CPU-only (no GPU state), so there is nothing to release when the
-    /// platform switches to headless mode.
-    pub(crate) fn release_gpu(&self) {}
 }
 
 impl PlatformTextSystem for DirectWriteTextSystem {
@@ -802,11 +793,6 @@ impl DirectWriteState {
 
     fn all_font_names(&self, components: &DirectWriteComponents) -> Vec<String> {
         get_font_names_from_collection(&self.system_font_collection, &components.locale)
-    }
-
-    fn handle_gpu_lost(&mut self, _directx_devices: &DirectXDevices) -> Result<()> {
-        // Win7: text rasterization is CPU-only (monochrome), so no GPU state to rebuild.
-        Ok(())
     }
 }
 

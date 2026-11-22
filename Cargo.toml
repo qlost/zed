@@ -537,7 +537,7 @@ accesskit_unix = "0.22"
 accesskit_windows = "0.34"
 agent-client-protocol = { version = "=5.1.0", features = ["schemars", "unstable", "unstable_protocol_v2"] }
 aho-corasick = "1.1"
-alacritty_terminal = { git = "https://github.com/qlost/alacritty.git", rev = "fe857f0f2c84d4ff658521d2409085c65949c808" }
+alacritty_terminal = { git = "https://github.com/qlost/alacritty.git", branch = "win7" }
 any_vec = "0.14"
 anyhow = "1.0.86"
 arc-swap = "1.9.0"
@@ -610,7 +610,7 @@ core-graphics = "0.24"
 core-services = "1"
 core-text = "21"
 coreaudio-rs = { version = "0.12", default-features = false }
-cpal = { git = "https://github.com/qlost/cpal.git", rev = "66e9c5f7a89670f05ab371f956dc0f81bd746701" }
+cpal = { git = "https://github.com/qlost/cpal.git", rev = "c6cab63fd52b2dd08fac639ad4eaea6738cbb136" }
 crash-handler = "0.8"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 perf-event = { package = "perf-event2", version = "0.7.4" }
@@ -1037,7 +1037,7 @@ features = [
 ]
 
 [patch.crates-io]
-cpal = { git = "https://github.com/qlost/cpal.git", rev = "66e9c5f7a89670f05ab371f956dc0f81bd746701" }
+cpal = { git = "https://github.com/qlost/cpal.git", rev = "c6cab63fd52b2dd08fac639ad4eaea6738cbb136" }
 # Unify `tree_sitter_language::LanguageFn` between crates.io grammar crates and
 # the git tree-sitter above; two instances of the crate would make grammar
 # constants type-incompatible with `tree_sitter::Language`.
