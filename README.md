@@ -1,6 +1,21 @@
 Windows 7 compatible Zed editor.
 Made with help of [Fenex](https://github.com/Fenex) and Deepseek.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a25c07d0-1299-4f21-bc0f-1722f4468a4c" />
+
+
+### Before building and run
+
+Set environment variable GPUI_DISABLE_DIRECT_COMPOSITION=1
+
+Remove "if target then return ..." from %USERPROFILE%\\.cargo\registry\src\index.crates.io-****\windows_x86_64_msvc-0.48.5\build.rs
+
+Patch NodeJS's node.exe: rename "GetSystemTimePreciseAsFileTime" to "GetSystemTimeAsFileTime".
+
+Patch ruff.exe to use stub dll.
+
+Zed fonts: manual install [IBM Plex Sans](https://www.ibm.com/plex/) and [Lilex](https://lilex.myrt.co) for `.ZedSans` and `.ZedMono`
+
 ---
 
 # Zed
